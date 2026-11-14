@@ -154,7 +154,8 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
 
 def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multiplexing: ObdCallback, alpha_long_allowed: bool,
             is_release: bool, cached_params: CarParamsT | None = None,
-            fixed_fingerprint: str | None = None, interface_config: SunnypilotCarConfig | None = None, is_release_sp: bool = False):
+            fixed_fingerprint: str | None = None, interface_config: SunnypilotCarConfig | None = None, is_release_sp: bool = False,
+            configure_detected_car=None):
   candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(can_recv, can_send, set_obd_multiplexing, cached_params,
                                                                           fixed_fingerprint)
 
@@ -170,6 +171,12 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
   CP.fingerprintSource = source
   CP.fuzzyFingerprint = not exact_match
   CP_SP = CarInterface.get_params_sp(CP, candidate, fingerprints, car_fw, alpha_long_allowed, is_release_sp, docs=False)
+
+  if configure_detected_car is not None:
+    configured = configure_detected_car(CP, CP_SP, interface_config)
+    if configured is not interface_config:
+      interface_config = configured
+      CP = CarInterface._configure_params(CP, interface_config, docs=False)
 
   sunnypilot_interfaces(CarInterface, CP, CP_SP, interface_config, can_recv, can_send)
 

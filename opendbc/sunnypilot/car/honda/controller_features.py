@@ -52,9 +52,12 @@ class HondaControllerFeatures:
   def live_tuning(self) -> HondaLiveTuning:
     live = self.config.provider.get_live_tuning()
     if self.personal_pedal:
-      return replace(live, live_learning_gas=False, roen_acceleration_limits=False)
+      return replace(live, live_learning_gas=False, roen_acceleration_limits=False,
+                     pedal_wind_brake=False, full_brake_authority=True)
     # Saved UI changes apply next startup, never halfway through a drive.
-    return replace(live, live_learning_gas=True) if self.mvl_longitudinal else live
+    if self.mvl_longitudinal or self.config.bosch_a_radar or self.CP.flags & HondaFlags.NIDEC_PCM_EXPERIMENTAL:
+      return replace(live, live_learning_gas=self.mvl_longitudinal, full_brake_authority=True, roen_acceleration_limits=False)
+    return replace(live, roen_acceleration_limits=False)
 
   def update_system_speed_flash(self, CC, CS, hud_control):
     now = time.monotonic()
