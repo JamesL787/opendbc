@@ -277,7 +277,7 @@ class CAR(Platforms):
   ACURA_RDX_3G_MMR = HondaBoschPlatformConfig(
     [HondaCarDocs("Acura RDX 2022-26", "All", min_steer_speed=70. * CV.KPH_TO_MS)],
     CarSpecs(mass=4079 * CV.LB_TO_KG, wheelbase=2.75, centerToFrontRatio=0.41, steerRatio=16.2),
-    {Bus.pt: 'acura_rdx_2020_can_generated'},
+    {Bus.pt: 'acura_rdx_2020_can_generated', Bus.radar: 'honda_bosch_a_radar'},
     flags=HondaFlags.BOSCH_ALT_RADAR,
   )
   HONDA_INSIGHT = HondaBoschPlatformConfig(
@@ -318,7 +318,7 @@ class CAR(Platforms):
   ACURA_MDX_4G = HondaBoschPlatformConfig(
     [HondaCarDocs("Acura MDX 2022-24", "All", min_steer_speed=70. * CV.KPH_TO_MS)],
     CarSpecs(mass=4788 * CV.LB_TO_KG, wheelbase=2.89, steerRatio=15.8, centerToFrontRatio=0.428),  # as spec
-    {Bus.pt: 'honda_common_canfd_generated'}, # not CANFD car but shares same dbc
+    {Bus.pt: 'honda_common_canfd_generated', Bus.radar: 'honda_bosch_a_radar'},  # not CANFD car but shares same dbc
     flags=HondaFlags.BOSCH_ALT_RADAR | HondaFlags.BOSCH_TJA_CONTROL,
   )
   # mid-model refresh
@@ -329,13 +329,13 @@ class CAR(Platforms):
   HONDA_ODYSSEY_5G_MMR = HondaBoschPlatformConfig(
     [HondaCarDocs("Honda Odyssey 2021-26", "All", min_steer_speed=70. * CV.KPH_TO_MS)],
     CarSpecs(mass=4590 * CV.LB_TO_KG, wheelbase=3.00, steerRatio=19.4, centerToFrontRatio=0.41),
-    {Bus.pt: 'acura_rdx_2020_can_generated'},
+    {Bus.pt: 'acura_rdx_2020_can_generated', Bus.radar: 'honda_bosch_a_radar'},
     flags=HondaFlags.BOSCH_ALT_RADAR,
   )
   ACURA_TLX_2G = HondaBoschPlatformConfig(
     [HondaCarDocs("Acura TLX 2021-23", "All")],
     CarSpecs(mass=3982 * CV.LB_TO_KG, wheelbase=2.87, steerRatio=14.0, centerToFrontRatio=0.43),
-    {Bus.pt: 'honda_civic_hatchback_ex_2017_can_generated'},
+    {Bus.pt: 'honda_civic_hatchback_ex_2017_can_generated', Bus.radar: 'honda_bosch_a_radar'},
     flags=HondaFlags.BOSCH_ALT_RADAR,
   )
   # mid-model refresh
@@ -499,13 +499,15 @@ class CAR(Platforms):
     flags=HondaFlags.NIDEC_ALT_SCM_MESSAGES | HondaFlags.HAS_ALL_DOOR_STATES,
   )
 
-# Platforms on the plain bosch_a harness (CarHarness.bosch_a): not CANFD, not radarless, not the
-# alt-radar variant. This is the hardware/wiring generation the hand-written Bosch-A 16-slot object
-# bank DBC (honda_bosch_a_radar, see radar_interface.py) was reverse-engineered against.
-HONDA_BOSCH_A = {c for c in CAR if c.config.flags & HondaFlags.BOSCH and
-                 not (c.config.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD | HondaFlags.BOSCH_ALT_RADAR))}
-
 DBC = CAR.create_dbc_map()
+
+# Platforms the hand-written Bosch-A 16-slot object bank DBC (honda_bosch_a_radar, see radar_interface.py) is wired to:
+# every Bosch platform that is not radarless or CANFD, classic harness and alt-radar stock (BOSCH_ALT_RADAR) alike.
+# Same membership rule as bosch_a_radar.bosch_a_radar_platform / VERIFIED_BOSCH_A_CARS (Honda-PTM-Testing); a test pins
+# them equal. (Until 2026-11-19 this excluded BOSCH_ALT_RADAR and the alt-radar platforms had no Bus.radar entry.)
+HONDA_BOSCH_A = frozenset(c for c in CAR if c.config.flags & HondaFlags.BOSCH and
+                          not (c.config.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD)) and
+                          DBC.get(c, {}).get(Bus.radar) == 'honda_bosch_a_radar')
 
 HONDA_NIDEC_ALT_PCM_ACCEL = frozenset(c for c in CAR if c.config.flags & HondaFlags.NIDEC_ALT_PCM_ACCEL)
 HONDA_NIDEC_ALT_SCM_MESSAGES = frozenset(c for c in CAR if c.config.flags & HondaFlags.NIDEC_ALT_SCM_MESSAGES)
