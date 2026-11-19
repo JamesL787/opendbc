@@ -2,7 +2,7 @@
 
 Evidence is replay only (Job, 2026-11-06, bpos + low-speed plant A, stops r99/9b/r96 + pool).
 Below about 3 m/s (7 mph) behind a stopping car, the Civic Bosch delivers 0.2-0.4 m/s^2 less
-decel than commanded and crawls the last metres instead of stopping cleanly. Ported from
+decel than commanded and crawls the last meters instead of stopping cleanly. Ported from
 mvl-boston opendbc sp-honda-dev-202608 @770d31735 carcontroller.py L320-326 / L1123-1137 and
 tamed per replay arm K05N05R1: 9b_S0 crawl at 0.5-2 m/s cut 12.7 -> 7.2 s, pool unchanged vs
 base (2 new/2 removed <-1 episodes, fidelity 0.844 vs 0.845, launch median 1.9 vs 1.8 s). The
