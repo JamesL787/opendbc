@@ -13,6 +13,7 @@ from opendbc.car.honda.radar_interface import RadarInterface
 from opendbc.car.interfaces import CarInterfaceBase
 
 from opendbc.sunnypilot.car.honda.interface_ext import configure_honda_platform, configure_modified_eps
+from opendbc.sunnypilot.car.honda.clarity_eps import is_angle_ptm_id
 from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP, HondaSafetyFlagsSP
 from opendbc.sunnypilot.car.runtime_config import SunnypilotCarConfig
 
@@ -142,7 +143,8 @@ class CarInterface(CarInterfaceBase):
 
     # Disable control if EPS mod detected
     for fw in car_fw:
-      if fw.ecu == "eps" and b"," in fw.fwVersion:
+      # "," = PTM image, "+" = PTM 2.0 / angle PTM image (Clarity 39990+TRW+A020, EPS build 0x05 on)
+      if fw.ecu == "eps" and (b"," in fw.fwVersion or b"+" in fw.fwVersion):
         ret.dashcamOnly = True
 
     if candidate == CAR.HONDA_CIVIC:
@@ -402,9 +404,12 @@ class CarInterface(CarInterfaceBase):
     CAN = CanBus(stock_cp, fingerprint)
 
     for fw in car_fw:
-      if fw.ecu == "eps" and b"," in fw.fwVersion:
+      # "," = PTM image, "+" = PTM 2.0 / angle PTM image (Clarity 39990+TRW+A020, EPS build 0x05 on)
+      if fw.ecu == "eps" and (b"," in fw.fwVersion or b"+" in fw.fwVersion):
         ret.flags |= HondaFlagsSP.EPS_MODIFIED.value
         stock_cp.dashcamOnly = False
+      if fw.ecu == "eps" and is_angle_ptm_id(fw.fwVersion):
+        ret.flags |= HondaFlagsSP.EPS_ANGLE_PTM.value
 
     if bool(stock_cp.flags & HondaFlags.NIDEC) and bool(stock_cp.flags & HondaFlags.HYBRID):
       ret.flags |= HondaFlagsSP.NIDEC_HYBRID.value
@@ -458,7 +463,7 @@ class CarInterface(CarInterfaceBase):
             stock_cp.lateralTuning.pid.kf = 0.00004
             stock_cp.lateralParams.torqueBP, stock_cp.lateralParams.torqueV = [[0, 5760, 15360], [0, 2560, 3840]]
             stock_cp.lateralTuning.pid.kpV, stock_cp.lateralTuning.pid.kiV = [[0.1575], [0.05175]]
-          elif fw.ecu == "eps" and b"-" in fw.fwVersion and b"," in fw.fwVersion:
+          elif fw.ecu == "eps" and ((b"-" in fw.fwVersion and b"," in fw.fwVersion) or b"+" in fw.fwVersion):
             stock_cp.lateralParams.torqueBP, stock_cp.lateralParams.torqueV = [[0, 5760, 10240], [0, 2560, 3840]]
             stock_cp.lateralTuning.pid.kpV, stock_cp.lateralTuning.pid.kiV = [[0.3], [0.1]]
       else:

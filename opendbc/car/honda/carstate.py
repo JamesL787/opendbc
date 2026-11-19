@@ -13,6 +13,7 @@ from opendbc.car.interfaces import CarStateBase
 from opendbc.car.honda.hud_objects import HudObjectTracker
 from opendbc.car.honda.yaw_rate import get_yaw_rate_calibration
 
+from opendbc.sunnypilot.car.honda.clarity_eps import MSG as EPS_CAL_STATUS_MSG, EpsCalStatus
 from opendbc.sunnypilot.car.honda.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.honda.carstate import HondaCarStateFeatures
 from opendbc.sunnypilot.car.runtime_config import HondaCarConfig
@@ -34,6 +35,8 @@ class CarState(CarStateBase, CarStateExt):
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
 
     self.nrdr = HondaCarStateFeatures(CP, config)
+    # Clarity mode-switch / angle-loop EPS: 0x6A4 status interlock (no-op on every other car)
+    self.eps_cal_status = EpsCalStatus(CP, CP_SP)
     self.keep_pcm_acc = clarity_braking.qualified(CP, CP_SP)
     self.pcm_acc_active = False
 
@@ -191,6 +194,8 @@ class CarState(CarStateBase, CarStateExt):
       ret.steerFaultTemporary = steer_status not in ("NORMAL", "LOW_SPEED_LOCKOUT", "NO_TORQUE_ALERT_2")
 
     self.steer_control_active = bool(cp.vl[self.steer_status_msg]["STEER_CONTROL_ACTIVE"])
+    if self.eps_cal_status.update(cp):           # the EPS is not running the requested calibration / angle loop
+      ret.steerFaultTemporary = True
 
     if (self.CP.carFingerprint == CAR.ACURA_MDX_4G) and (steer_status == "TJA_LOW_SPEED_LOCKOUT"):
       ret.steerFaultPermanent = False
@@ -423,6 +428,9 @@ class CarState(CarStateBase, CarStateExt):
     if CP.carFingerprint == CAR.ACURA_RLX_HYBRID:
       # the bridged stock camera LKAS_HUD must stay alive on the powertrain bus
       pt_messages.append(("LKAS_HUD", 10))
+    if EpsCalStatus(CP, CP_SP).enabled:
+      # 0x6A4 exists only on the mode-switch / angle-loop EPS builds; NaN frequency so its absence never costs canValid
+      pt_messages.append((EPS_CAL_STATUS_MSG, float('nan')))
     cam_messages = []
     if self.CP.flags & HondaFlags.BOSCH_CANFD:
       # Radar-alive and relay-open detection for the deferred radar disable (see carcontroller).

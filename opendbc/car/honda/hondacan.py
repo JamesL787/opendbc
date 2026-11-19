@@ -142,7 +142,7 @@ def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_count
   return commands
 
 
-def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control):
+def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, eps_mode=0, angle_payload=0):
   values = {
     "STEER_TORQUE": apply_torque if lkas_active else 0,
     "STEER_TORQUE_REQUEST": lkas_active,
@@ -150,6 +150,12 @@ def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control)
 
   if tja_control:
     values["STEER_DOWN_TO_ZERO"] = lkas_active
+  # Clarity mode-switch / angle-loop EPS builds (sunnypilot/car/honda/clarity_eps.py): byte 3 = calibration mode request
+  # (bits 3:1) + control type (bit 0); byte 2 bit 5 marks an angle payload in bytes 0-1. Stock firmware never reads them.
+  if eps_mode:
+    values["SET_ME_X00_2"] = eps_mode
+  if angle_payload and lkas_active:
+    values["SET_ME_X00"] = angle_payload
 
   return packer.make_can_msg("STEERING_CONTROL", CAN.lkas, values)
 
