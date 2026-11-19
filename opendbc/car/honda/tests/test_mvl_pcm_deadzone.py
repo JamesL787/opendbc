@@ -131,6 +131,7 @@ def test_every_bypass_preserves_existing_update_skip_and_reset(reason):
   calls = [[], []]
   for index, item in enumerate((ci, baseline)):
     original = item.CC.nidec_pid.update
+
     def record(*args, _original=original, _calls=calls[index], **kwargs):
       _calls.append(kwargs["error"])
       return _original(*args, **kwargs)

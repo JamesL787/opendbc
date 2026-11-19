@@ -31,14 +31,14 @@ def test_credit_tapers_with_overspeed_and_demand():
   speeds = [20. + x / 1000 for x in range(751)]
   credit = [coast_blend(.05, -.15, v, 20., True)[0] for v in speeds]
   # Up to +.25 the drag curve grows slightly; thereafter the overspeed taper dominates.
-  assert all(a >= b for a, b in zip(credit[250:], credit[251:]))
+  assert all(a >= b for a, b in zip(credit[250:], credit[251:], strict=False))
   assert credit[-1] == 0.
   demand = [coast_blend(-.15 - x / 1000, -.15, 20., 20., True)[0] for x in range(351)]
-  assert all(a >= b for a, b in zip(demand, demand[1:]))
+  assert all(a >= b for a, b in zip(demand, demand[1:], strict=False))
   assert demand[-1] == 0.
   fractions = [coast_blend(.05, -x / 1000, 20., 20., True)[1] for x in range(501)]
-  assert all(a >= b for a, b in zip(fractions, fractions[1:]))
-  assert max(abs(a-b) for a, b in zip(fractions, fractions[1:])) < .005
+  assert all(a >= b for a, b in zip(fractions, fractions[1:], strict=False))
+  assert max(abs(a-b) for a, b in zip(fractions, fractions[1:], strict=False)) < .005
   # Credit disappearing must not restore acceleration at the overspeed edge,
   # including a negative wheel demand too small to trigger brake hysteresis.
   for v in (20.749, 20.75, 20.751, 21.):
