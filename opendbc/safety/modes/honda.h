@@ -313,6 +313,8 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
       }
     } else if (longitudinal_brake_checks(brake, HONDA_NIDEC_LONG_LIMITS)) {
       tx = false;
+    } else {
+      // No violation: tx unchanged (final else required by MISRA 15.7)
     }
     if (honda_fwd_brake) {
       tx = false;
