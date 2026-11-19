@@ -23,6 +23,7 @@ testing = [
   "tree-sitter-c",
   "gcovr",
   "unittest-parallel",
+  "pytest",
   "zstandard",
 
   # static analysis
