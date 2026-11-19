@@ -8,7 +8,7 @@ older PTM firmware never read byte 3. Modes switch only at LKAS idle (252 ms).
 0x6A4 EPS_CAL_STATUS (50 Hz, only these builds): requested / active mode, build ID, angle-loop state. openpilot sends an
 angle payload only while the EPS reports the requested angle mode on a build that has it (EpsCalStatus.angle_ready).
 
-Angle mode (steerControlType angle, startup setting): bytes 0-1 = -10 x target deg (0x14A STEER_ANGLE raw), byte 2 bit 5
+Angle mode (steerControlType angle, startup setting, angle PTM ID 39990+TRW+A020 only): bytes 0-1 = -10 x target deg (0x14A STEER_ANGLE raw), byte 2 bit 5
 with the request. The target is a rate- and acceleration-limited trajectory inside the EPS's jump/slew/lateral-accel
 limits, starting at the wheel's angle and rate, its limits fading in over Override Fade Up; Steering Angle Rate Limit
 caps it further. The request drops on every driver press.
@@ -44,10 +44,21 @@ ENGAGE_S, ENGAGE_FLOOR = 1.5, 0.15    # limits ramp 15% -> 100% after the reques
 RAW_MAX = 32767
 
 
+ANGLE_PTM_SEPARATOR = b"+"   # "39990+TRW+A020": the PTM 2.0 / angle PTM software ID ("-" stock, "," torque PTM)
+
+
+def is_angle_ptm_id(fw_version: bytes) -> bool:
+  """The angle PTM software ID: '+' in both separator slots (39990+TRW+A020)."""
+  v = bytes(fw_version)
+  return len(v) >= 10 and v[5:6] == ANGLE_PTM_SEPARATOR and v[9:10] == ANGLE_PTM_SEPARATOR
+
+
 def apply_angle_mode(CP, CP_SP, requested: bool) -> None:
-  """Startup choice (HondaCarConfig.clarity_angle_mode). Only a Clarity on modified EPS firmware can run the angle build;
-  every other car is untouched."""
-  if requested and CP.carFingerprint == CAR.HONDA_CLARITY and CP_SP.flags & HondaFlagsSP.EPS_MODIFIED:
+  """Startup choice (HondaCarConfig.clarity_angle_mode). Only a Clarity whose EPS reports the angle PTM ID
+  (39990+TRW+A020, builds 0x05 on) can select angle mode; torque PTM ("," IDs) and every other car are untouched.
+  At runtime the 0x6A4 interlock still gates the payload on the reported build and mode."""
+  if requested and CP.carFingerprint == CAR.HONDA_CLARITY and CP_SP.flags & HondaFlagsSP.EPS_MODIFIED and \
+     CP_SP.flags & HondaFlagsSP.EPS_ANGLE_PTM:
     CP_SP.flags |= HondaFlagsSP.CLARITY_ANGLE_MODE.value
     CP.steerControlType = structs.CarParams.SteerControlType.angle
 
@@ -110,9 +121,11 @@ class AngleModeSender:
 # build ID (0x6A4 byte 1) -> modes built in (bit k = mode k). The ID also fixes the frame layout. Each build's README
 # records ID <-> bin/rwd sha256.
 KNOWN_BUILDS = {
-  0x05: 0b11111,  # angle 3.0 profile 20261118 layout v3 (bin a4c6a41c, rwd efca528b): 0x04's 0-3, 4 = angle loop with a 3.0 m/s^2 clamp
+  0x05: 0b11111,  # angle 3.0 profile 20261118, ID 39990+TRW+A020 (bin b4f5970d, rwd 1fbf3b63): 0x04's 0-3, 4 = 3.0 m/s^2 clamp
   0x04: 0b1111,  # angle mode 20261118 layout v3 (bin d884e27f, rwd bb4ff1b3): MM 0x02's 0-2, 3 = angle loop (CleanPTM tables, A280 flat)
-  0x02: 0b111,   # MM 20261116 layout v2 (bin 2382007c, rwd a173fd71; 11-17 fixes: 252 ms switch debounce, IMASK 10 copy, no reload while engaged): 0 stock, 1 CleanPTM, 2 P2 slot (= CleanPTM for now)
+  # MM 20261116 layout v2 (bin 2382007c, rwd a173fd71; 11-17 fixes: 252 ms switch debounce, IMASK 10 copy, no reload while
+  # engaged): 0 stock, 1 CleanPTM, 2 P2 slot (= CleanPTM for now)
+  0x02: 0b111,
 }
 ANGLE_BUILDS = {0x04, 0x05}   # builds with the in-EPS angle loop (0x6A4 layout v3)
 STATUS_TIMEOUT_FRAMES = 50   # carState updates (100 Hz): 0.5 s, 25 periods of the 50 Hz frame

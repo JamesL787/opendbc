@@ -56,7 +56,11 @@ class Feed:
       self.ci.update([(self.t, [])])
 
 
-def e4(ci, lat, angle_des=0.0, measured=0.0, v=10.0, pressed=False, torque=0.0, t=[2_000_000_000]):
+_CLOCK = [2_000_000_000]
+
+
+def e4(ci, lat, angle_des=0.0, measured=0.0, v=10.0, pressed=False, torque=0.0, t=None):
+  t = _CLOCK if t is None else t
   ci.CS.out.vEgo = v
   ci.CS.out.steeringAngleDeg = measured
   ci.CS.out.steeringRateDeg = 0.0
@@ -102,17 +106,32 @@ def test_torque_mode_without_status_frame_is_ok_and_wrong_mode_faults():
 
 # --- angle mode ---
 
-def test_angle_mode_setting_selects_angle_on_modified_clarity_only():
-  ci = clarity(PTM, angle=True)
+def test_angle_mode_setting_selects_angle_on_the_angle_ptm_id_only():
+  ci = clarity(PTM2, angle=True)
   assert ci.CP_SP.flags & HondaFlagsSP.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.angle
-  stock = clarity(STOCK, angle=True)
-  assert not stock.CP_SP.flags & HondaFlagsSP.CLARITY_ANGLE_MODE and stock.CP.steerControlType != structs.CarParams.SteerControlType.angle
-  off = clarity(PTM, angle=False)
+  for fw in (STOCK, PTM):                                                 # stock and torque PTM ("," IDs): no angle mode
+    ci = clarity(fw, angle=True)
+    assert not ci.CP_SP.flags & HondaFlagsSP.CLARITY_ANGLE_MODE and ci.CP.steerControlType != structs.CarParams.SteerControlType.angle
+  off = clarity(PTM2, angle=False)
   assert off.CP.steerControlType != structs.CarParams.SteerControlType.angle
 
 
-def test_no_angle_payload_until_the_eps_reports_the_angle_mode():
+@pytest.mark.parametrize("fw,ok", [(PTM2, True), (PTM, False), (STOCK, False), (b"39990+TRW,A020\x00\x00", False),
+                                   (b"39990,TRW+A020\x00\x00", False), (b"", False)])
+def test_angle_ptm_id_needs_plus_in_both_slots(fw, ok):
+  assert ce.is_angle_ptm_id(fw) == ok
+  if fw:
+    assert bool(clarity(fw).CP_SP.flags & HondaFlagsSP.EPS_ANGLE_PTM) == ok
+
+
+def test_torque_ptm_with_angle_setting_stays_a_torque_car():
   ci = clarity(PTM, angle=True)
+  _, d = e4(ci, True, torque=0.1)
+  assert d[3] == 0x02
+
+
+def test_no_angle_payload_until_the_eps_reports_the_angle_mode():
+  ci = clarity(PTM2, angle=True)
   for _ in range(30):                                                     # no 0x6A4 at all (stock/CleanPTM/P1 firmware)
     _, d = e4(ci, True, 20.0)
     assert d[0:3] == bytes(3) and d[3] == 0x07
@@ -123,7 +142,7 @@ def test_no_angle_payload_until_the_eps_reports_the_angle_mode():
 
 
 def test_angle_payload_ramps_from_the_wheel_and_drops_on_press():
-  ci = clarity(PTM, angle=True, override_fade_up_s=1.5)                   # Override Fade Up = the angle engage fade
+  ci = clarity(PTM2, angle=True, override_fade_up_s=1.5)                   # Override Fade Up = the angle engage fade
   Feed(ci).run(8)                                                         # build 0x04, mode 3
   assert ci.CS.eps_cal_status.angle_ready
   e4(ci, False, 0.0, 5.0)
@@ -140,7 +159,7 @@ def test_angle_payload_ramps_from_the_wheel_and_drops_on_press():
 
 
 def test_angle_fault_stops_the_payload():
-  ci = clarity(PTM, angle=True)
+  ci = clarity(PTM2, angle=True)
   f = Feed(ci)
   f.run(8)
   e4(ci, True, 5.0)
@@ -162,14 +181,14 @@ def test_cap3_profile_on_build_05_only():
     _, d = e4(ci, True, 600.0, v=12.0)
   a = int.from_bytes(d[0:2], "big", signed=True) / ce.RAW_PER_DEG
   assert a == pytest.approx(ce.angle_limit(12.0, ce.AMAX_CAP3_SCALE), abs=0.06)
-  old = clarity(PTM, angle=True, clarity_angle_cap3=True)
+  old = clarity(PTM2, angle=True, clarity_angle_cap3=True)
   Feed(old).run(8)                                                        # build 0x04: stays mode 3
   _, d = e4(old, False)
   assert d[3] == 0x07
 
 
 def test_angle_rate_limit_setting_caps_the_target():
-  ci = clarity(PTM, angle=True, angle_rate_limit_deg_s=40.0)
+  ci = clarity(PTM2, angle=True, angle_rate_limit_deg_s=40.0)
   Feed(ci).run(8)
   e4(ci, False, v=5.0)
   prev, w = 0.0, []
@@ -182,10 +201,14 @@ def test_angle_rate_limit_setting_caps_the_target():
 
 @pytest.mark.parametrize("v", [2.0, 8.0, 15.0, 30.0])
 def test_sender_rate_and_acceleration_limits(v):
-  s = ce.AngleModeSender(); s.update(False, 0.0, 0.0, v, True)
-  pa = pw = 0.0; w = []; a = []
+  s = ce.AngleModeSender()
+  s.update(False, 0.0, 0.0, v, True)
+  pa = pw = 0.0
+  w, a = [], []
   for k in range(600):
     s.update(True, 60.0 * np.sign(np.sin(k / 40.0)), 0.0, v, True, engage_s=0.0)
-    w.append((s.apply_angle - pa) / 0.01); a.append((w[-1] - pw) / 0.01); pa, pw = s.apply_angle, w[-1]
+    w.append((s.apply_angle - pa) / 0.01)
+    a.append((w[-1] - pw) / 0.01)
+    pa, pw = s.apply_angle, w[-1]
   assert max(map(abs, w)) <= float(np.interp(v, ce._VT, ce.TARGET_RATE_DEG_S)) + 1e-6
   assert max(map(abs, a)) <= float(np.interp(v, ce._VT, ce.TARGET_ACCEL_DEG_S2)) + 1e-6

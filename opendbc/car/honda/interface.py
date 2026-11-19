@@ -13,6 +13,7 @@ from opendbc.car.honda.radar_interface import RadarInterface
 from opendbc.car.interfaces import CarInterfaceBase
 
 from opendbc.sunnypilot.car.honda.interface_ext import configure_honda_platform, configure_modified_eps
+from opendbc.sunnypilot.car.honda.clarity_eps import is_angle_ptm_id
 from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP, HondaSafetyFlagsSP
 from opendbc.sunnypilot.car.runtime_config import SunnypilotCarConfig
 
@@ -407,6 +408,8 @@ class CarInterface(CarInterfaceBase):
       if fw.ecu == "eps" and (b"," in fw.fwVersion or b"+" in fw.fwVersion):
         ret.flags |= HondaFlagsSP.EPS_MODIFIED.value
         stock_cp.dashcamOnly = False
+      if fw.ecu == "eps" and is_angle_ptm_id(fw.fwVersion):
+        ret.flags |= HondaFlagsSP.EPS_ANGLE_PTM.value
 
     if bool(stock_cp.flags & HondaFlags.NIDEC) and bool(stock_cp.flags & HondaFlags.HYBRID):
       ret.flags |= HondaFlagsSP.NIDEC_HYBRID.value
