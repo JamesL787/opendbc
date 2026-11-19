@@ -50,6 +50,7 @@ FW_VERSIONS_EXT = {
       # Modified firmware reports either delimiter form.
       b'39990-TRW,A020\x00\x00',
       b'39990,TRW,A020\x00\x00',
+      b'39990+TRW+A020\x00\x00',  # PTM 2.0 / angle PTM (EPS build 0x05 on)
     ],
     (Ecu.srs, 0x18da53f1, None): [
       b'77959-TRW-A210\x00\x00',

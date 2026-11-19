@@ -21,6 +21,7 @@ from opendbc.car.honda.nidec_ecu_matched import EcuMatchedPCM
 from opendbc.car.honda.nidec_long_helpers import nidec_speed_lead_mps
 from opendbc.car.honda import mvl_longitudinal
 
+from opendbc.sunnypilot.car.honda import clarity_eps
 from opendbc.sunnypilot.car.honda.mads import MadsCarController
 from opendbc.sunnypilot.car.honda.gas_interceptor import GasInterceptorCarController
 from opendbc.sunnypilot.car.honda.icbm import IntelligentCruiseButtonManagementInterface
@@ -239,6 +240,11 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
     self.lkas_state_change_frames = 0
     self.tja_control = bool(CP.flags & HondaFlags.BOSCH_TJA_CONTROL)
     self.nrdr = HondaControllerFeatures(CP, CP_SP, config)
+    # Clarity mode-switch / angle-loop EPS (sunnypilot/car/honda/clarity_eps.py): byte 3 mode request, angle sender
+    self.eps_mode = clarity_eps.requested_eps_mode(CP, CP_SP) << 1        # 0x02 on a modified-EPS Clarity, else 0
+    self.angle_sender = clarity_eps.AngleModeSender() if clarity_eps.angle_mode(CP_SP) else None
+    if self.angle_sender is not None:
+      self.eps_mode = clarity_eps.BYTE3_ANGLE
     self.mvl_longitudinal = self.nrdr.mvl_longitudinal
     self.nidec_pcm = uses_nidec_pcm(CP, CP_SP)
     self.mvl_pcm_deadzone = mvl_longitudinal.pcm_deadzone_config(CP, CP_SP, self.mvl_longitudinal, config.mvl_pcm_deadzone)
@@ -777,7 +783,21 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
         can_sends.append((addr, dat, self.CAN.camera))
 
     # Send steering command.
-    can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control))
+    angle_payload = 0
+    if self.angle_sender is not None:
+      # Angle mode replaces the torque: bytes 0-1 carry the target only while 0x6A4 reports the requested angle mode on
+      # an angle build. No request during a driver press, whatever the override settings (a request held through a press
+      # makes the stiff angle loop fight the driver). Profile changes only while lateral is off (EPS switches at idle).
+      if not CC.latActive:
+        CS.eps_cal_status.set_angle_profile(live.clarity_angle_cap3)
+      self.eps_mode = (CS.eps_cal_status.requested << 1) | 1                   # 0x07 mode 3, 0x09 mode 4
+      raw, lkas_active, angle_payload = self.angle_sender.update(
+        CC.latActive and not CS.out.steeringPressed, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo,
+        CS.eps_cal_status.angle_ready, CS.out.steeringRateDeg, live.override_fade_up_s,
+        clarity_eps.AMAX_CAP3_SCALE if CS.eps_cal_status.cap3_active else 1.0, live.angle_rate_limit_deg_s)
+      apply_torque = raw
+    can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control,
+                                                      eps_mode=self.eps_mode, angle_payload=angle_payload))
 
     if self.mvl_longitudinal and not self.civic_pcm:
       pcm_speed, pcm_accel = mvl_longitudinal.commands(
@@ -1576,6 +1596,10 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
     new_actuators.brake = float(self.brake)
     new_actuators.torque = float(self.last_torque)
     new_actuators.torqueOutputCan = apply_torque
+    if self.angle_sender is not None:
+      new_actuators.torque = 0.0
+      new_actuators.torqueOutputCan = 0.0
+      new_actuators.steeringAngleDeg = float(self.angle_sender.apply_angle)   # controlsd's angle saturation check
 
     if self.mvl_longitudinal:
       mvl_longitudinal.persist(self, self.nrdr.config.provider)

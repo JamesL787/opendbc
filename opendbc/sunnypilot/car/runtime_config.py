@@ -34,6 +34,8 @@ class HondaLiveTuning:
   full_brake_authority: bool
   roen_acceleration_limits: bool
   pedal_wind_brake: bool = True
+  clarity_angle_cap3: bool = False  # Clarity angle mode: use mode 4 (3.0 m/s^2 clamp) when the EPS reports build 0x05
+  angle_rate_limit_deg_s: float = 0.0  # Clarity angle mode: cap on the target's rate (deg/s, 0 = off)
 
 
 class HondaConfigProvider(Protocol):
@@ -67,6 +69,7 @@ class HondaCarConfig:
   rdx_tjb_a220_transport_bench: bool = False
   mvl_longitudinal: bool = False  # HondaLiveLearningGas at startup; restart to change.
   personal_pedal: bool = False  # Opt-in Nidec interceptor speed-error controller.
+  clarity_angle_mode: bool = False  # Startup only: Clarity steers by angle through the angle-loop EPS build (0x04/0x05).
   mvl_pcm_deadzone: float = 0.0  # Legacy acceleration experiment; not selected by the host UI.
   civic_pcm_speed_deadzone: float = 0.0  # Experimental PCM target-error deadband (m/s); startup only.
 

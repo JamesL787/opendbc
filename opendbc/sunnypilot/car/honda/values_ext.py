@@ -24,6 +24,7 @@ class HondaFlagsSP(IntFlag):
   HAS_CAMERA_MESSAGES = 8
   STOCK_LONGITUDINAL = 16
   CLARITY_INTERCEPTOR_BRAKE_CAPABLE = 32
+  CLARITY_ANGLE_MODE = 64  # angle-loop EPS build (0x04/0x05): steerControlType angle, see clarity_eps.py
 
 
 class HondaSafetyFlagsSP:
