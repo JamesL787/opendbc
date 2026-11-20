@@ -1227,3 +1227,13 @@ def test_force_stock_preserves_bosch_radar_param_state(radar_enabled):
   assert not (cp.safetyConfigs[-1].safetyParam & HondaSafetyFlags.BOSCH_LONG.value)
   assert cp_sp.flags & HondaFlagsSP.STOCK_LONGITUDINAL.value
   assert cp_sp.safetyParam & HondaSafetyFlagsSP.STOCK_LONGITUDINAL
+
+
+def test_honda_bosch_a_is_verified_bosch_a_cars():
+  """One definition of 'Bosch-A car' (D1, 2026-11-19): values.HONDA_BOSCH_A, the decoder's platform set and its alt-radar subset agree."""
+  from opendbc.car.honda.bosch_a_radar import BOSCH_A_ALT_RADAR_CARS, VERIFIED_BOSCH_A_CARS
+  from opendbc.car.honda.values import HONDA_BOSCH_ALT_RADAR
+  assert set(HONDA_BOSCH_A) == set(VERIFIED_BOSCH_A_CARS)
+  assert len(VERIFIED_BOSCH_A_CARS) == 14
+  assert set(BOSCH_A_ALT_RADAR_CARS) == set(HONDA_BOSCH_ALT_RADAR & HONDA_BOSCH_A)
+  assert {CAR.ACURA_MDX_4G, CAR.ACURA_RDX_3G_MMR, CAR.ACURA_TLX_2G, CAR.HONDA_ODYSSEY_5G_MMR} <= set(BOSCH_A_ALT_RADAR_CARS)

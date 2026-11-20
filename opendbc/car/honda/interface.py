@@ -23,6 +23,8 @@ TransmissionType = structs.CarParams.TransmissionType
 def _use_bosch_a_radar(candidate, docs: bool, interface_config: SunnypilotCarConfig | None) -> bool:
   # TODO: remove this toggle+param once the 16-slot Bosch-A decoder (see radar_interface.py) has been
   # field-validated across all HONDA_BOSCH_A platforms, then make radarUnavailable unconditional here.
+  # HONDA_BOSCH_A is the 14 cars wired to honda_bosch_a_radar (same list as Honda-PTM-Testing, which has no toggle). The
+  # four BOSCH_ALT_RADAR members (MDX 4G, RDX 3G MMR, TLX 2G, Odyssey 5G MMR) joined 2026-11-19: no road evidence here.
   if candidate not in HONDA_BOSCH_A:
     return False
   if docs:
