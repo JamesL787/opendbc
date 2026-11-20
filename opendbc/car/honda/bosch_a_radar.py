@@ -170,7 +170,7 @@ BOSCH_A_DIRECT_VREL_CENTER_RAW = 864
 # for 1/72.
 #   * static: Bosch-radar-partner camera firmware (36161-TLA-A070; same-family TGG-A080, TGH-A040,
 #     TFJ/TGG/TGL-G070) formats vRel as round((v + 12) / 0x3c638e45), and 0x3c638e45 is 1/72 as an f32.
-#     (v + 12) * 72 spans raw 0..1728, the observed rails, centre 864: the field is +-12.0 m/s by design.
+#     (v + 12) * 72 spans raw 0..1728, the observed rails, center 864: the field is +-12.0 m/s by design.
 #     The owner's camera, 36161-TBA-A130, is not imaged. (firmware-analysis-kit: camera-re/bosch_a_inventory,
 #     radar-re/u11_encode)
 #   * replay: stationary objects vs GPS 70.75 counts per m/s; lead-stop 71.55 [71.26, 72.40]; road-speed
@@ -182,7 +182,7 @@ BOSCH_A_DIRECT_VREL_CENTER_RAW = 864
 #     proven raw/16 (R18); the range offset (BOSCH_A_RANGE_OFFSET_M, -346/128 on Civic) is a constant and does not change a range
 #     slope. So this reads as a range-vs-U11 discrepancy (the range slope runs faster than U11), not a decode
 #     error. Unresolved; see STATUS. No closing-speed figure here is road-validated.
-# Centre 864, rails raw 0/1728, sentinel 0x7FE, u10, range and azimuth are unchanged. 1/72 publishes 64/72 of the
+# Center 864, rails raw 0/1728, sentinel 0x7FE, u10, range and azimuth are unchanged. 1/72 publishes 64/72 of the
 # old closing speed (-11.1 %) and puts the rail at 12.0 instead of 13.5 m/s; no gate threshold was re-tuned.
 # The decode divides by the count rate, v = (raw - 864) / 72 exactly as the firmware formatter's inverse; multiplying by
 # a rounded 1/72 differs from it by one double ulp on 598 of the 1729 raws (none after the float32 publish).
@@ -285,7 +285,7 @@ BOSCH_A_COAST_REVERSING_MARGIN_MPS = 1.0
 # withheld ranges are kept in `newborn_run` and, once their trailing D-043 window (4 sweeps over 0.25 s) fits a
 # line within BOSCH_A_REANCHOR_MAX_RMS_M, the geometry is published unmeasured with vRel = that fit's rate, bounded
 # at -vEgo (the most closing a stopped object can produce): the stationary bound. The live U11 is not used. Why:
-# radard initialises its Track KF from the first published vRel and never updates it while measured=False, so the
+# radard initializes its Track KF from the first published vRel and never updates it while measured=False, so the
 # first newborn vRel freezes vLeadK for the whole run; and the live U11 at high u10 is junk on exactly these
 # identities -- track 39 read -3.8 at u10 623, +2.4 at u10 1015, then sat on the rail -- so the first layer-1 form
 # (live U11 clipped to the fit +-3, floored at the low rail) froze a lead far too fast. The fit agrees with the
@@ -328,7 +328,7 @@ BOSCH_A_U11_FLOOR_UNMEASURED = True
 # the unseeded track's coast followed the range (-0.5 .. -5.0). Replay evidence only.
 BOSCH_A_NEWBORN_SEED_HISTORY = False
 # u10 is a genuine uncertainty on U11, but it is CONFOUNDED WITH DYNAMICS. Measured against an
-# event-local reference (quadratic fit to a centred window, derivative at the centre) over 16,834
+# event-local reference (quadratic fit to a centered window, derivative at the center) over 16,834
 # frames: median |err| rises 0.26 -> 0.88 -> 1.44 -> 1.95 m/s across u10 bins 0-64 / 64-128 /
 # 128-192 / 192-256, but median |a_rel| rises 0.73 -> 2.13 -> 3.51 -> 4.59 m/s^2 alongside it.
 # corr(u10,|err|) = +0.40 and corr(u10,|a_rel|) = +0.43. Holding dynamics out, the quality signal is
@@ -342,7 +342,7 @@ BOSCH_A_NEWBORN_SEED_HISTORY = False
 # vision fallback injected a 5 m / 6 m/s step that drove a -3.51 m/s^2 brake. Restored here.
 #
 # Do not re-tune this from offline error statistics. u10's confounding with dynamics means a lower
-# threshold preferentially rejects real manoeuvring; the coast paths below are what must stay safe,
+# threshold preferentially rejects real maneuvering; the coast paths below are what must stay safe,
 # not this number.
 BOSCH_A_DIRECT_VREL_MAX_UNCERTAINTY_RAW = 511
 

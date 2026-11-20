@@ -23,6 +23,7 @@ testing = [
   "tree-sitter-c",
   "gcovr",
   "unittest-parallel",
+  "pytest",
   "zstandard",
 
   # static analysis
@@ -51,7 +52,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.codespell]
 quiet-level = 3
-ignore-words-list = "alo,ba,bu,deque,hda,grey,arange"
+ignore-words-list = "alo,ba,bu,deque,hda,grey,arange,ang"
 builtin = "clear,rare,informal,code,names,en-GB_to_en-US"
 check-hidden = true
 

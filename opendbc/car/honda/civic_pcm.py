@@ -35,7 +35,7 @@ def coast_blend(requested: float, hill: float, speed: float, cruise: float, elig
   # Wind Brake factor (nearly 3 in the source drive, ~1.7 m/s2 at highway speed).
   points = ((5.0, .10), (13.0, .15), (22.0, .25), (35.0, .30))
   drag = points[-1][1]
-  for (v0, d0), (v1, d1) in zip(points, points[1:]):
+  for (v0, d0), (v1, d1) in zip(points, points[1:], strict=False):
     if speed <= v1:
       drag = d0 + (d1 - d0) * (speed - v0) / (v1 - v0)
       break

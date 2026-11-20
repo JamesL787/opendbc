@@ -953,7 +953,7 @@ class TestVrel:
   def test_gross_velocity_range_disagreement_coasts(self):
     """A velocity that flatly contradicts the measured range over several sweeps is not published.
 
-    Modelled on Peter route 000001eb at 6:59, where U11 reported -10.58 m/s closing while the range
+    Modeled on Peter route 000001eb at 6:59, where U11 reported -10.58 m/s closing while the range
     was actually opening at +0.46 m/s across a track-identity change. The per-sweep innovation gate
     cannot see this: over one ~70 ms sweep even a 3 m/s error moves the range only 0.2 m.
     """
@@ -999,7 +999,7 @@ class TestVrel:
     # The point of this sequence: the 64/82/96/102 reset ranges are rejected and must never enter
     # the accepted history, so they can never become the baseline for a later derivative. Asserted
     # by content rather than by sample count, which also depends on the u10 gate -- row 0 (u10=136)
-    # now coasts on uncertainty, which is the intended stricter behaviour, not a regression.
+    # now coasts on uncertainty, which is the intended stricter behavior, not a regression.
     accepted = [sample[1] for sample in ri._tracks[23].samples]
     rejected = [raw * BOSCH_A_RANGE_SCALE_M + BOSCH_A_RANGE_OFFSET_M for raw in (64, 82, 96, 102)]
     assert not any(any(abs(a - r) < 1e-6 for r in rejected) for a in accepted)
@@ -1009,7 +1009,7 @@ class TestVrel:
 # --- 7a. D-054: a velocity coast must not freeze the range-innovation baseline ----------------------
 
 class TestCoastAdvancesTheRangeGate:
-  """Modelled on 00000232--3a01619ce5 track 43 at t=1258.7 s, the followed lead pulling away 78.5 ->
+  """Modeled on 00000232--3a01619ce5 track 43 at t=1258.7 s, the followed lead pulling away 78.5 ->
   84.5 m with a degraded range sigma of 7. U11 lagged the opening, the D-043 rate check coasted, and
   the gate kept predicting from the last ACCEPTED sample with that lagging U11 across a growing gap:
   the error grew 0.86 / 1.12 / 1.53 / 1.87 / 2.11 m, the degraded 2.0 m limit rejected the lead, and
@@ -1148,7 +1148,7 @@ class TestCoastAdvancesTheRangeGate:
 # --- 7a'. D-055: an invalid slot must not hide an identity that is valid elsewhere ------------
 
 class TestInvalidSlotDoesNotHideAMigratedIdentity:
-  """Modelled on 00000237--77313c5a66 track 9 (the followed lead, 21.2 s dark) and 00000232 track 43.
+  """Modeled on 00000237--77313c5a66 track 9 (the followed lead, 21.2 s dark) and 00000232 track 43.
   The radar moved the object to another wire slot in the same sweep its old slot went invalid. The
   invalid-observation hide deleted the point, the D-043 rate check then coasted the valid observation,
   and a coast only updates an existing point, so the lead stayed dark until an accept."""
@@ -1197,8 +1197,8 @@ class TestInvalidSlotDoesNotHideAMigratedIdentity:
 # --- 7a''. D-057: a lasting, clean range step re-anchors instead of locking the lead out ----
 
 class TestLastingCleanStepReAnchors:
-  """Modelled on 00000236--60bfb34cb1 track 38 at t=1703.6 s and 00000237 track 31 at t=761.5 s. A new
-  object's birth ranges were accepted, then its range settled several metres closer and every later
+  """Modeled on 00000236--60bfb34cb1 track 38 at t=1703.6 s and 00000237 track 31 at t=761.5 s. A new
+  object's birth ranges were accepted, then its range settled several meters closer and every later
   sweep contradicted both baselines. The lead stayed dark for 27.4 s / 20.4 s while it closed to 38 m /
   20 m, with non-degraded ranges moving at the U11 rate."""
   DT_NANOS = 70_000_000
@@ -1310,7 +1310,7 @@ class TestAJoinWaitsForAFreshRateFit:
 
 
 class TestRateCheckCoastReRoots:
-  """D-062 (STATUS 69/70). Modelled on 00000258--626242f48b track 13 at 43:29-43:46: the lead was opening, then
+  """D-062 (STATUS 69/70). Modeled on 00000258--626242f48b track 13 at 43:29-43:46: the lead was opening, then
   braked hard. The D-043 rate check fits `samples`, which only accepted sweeps extend. Coasts had left that
   history stale, so the fit read the old opening rate, the first rejection froze it there, and from then on
   U11 minus the stale average rate grows with the lead's deceleration: every later U11 was rejected while
@@ -1761,7 +1761,7 @@ def test_rail_interval_and_coast_range_bound_built_in():
 
 class TestRailIntervalBoundsTheCoast:
   """D-063 addendum (STATUS 92). With BoschARailInterval on, a coast is bounded to within 3 m/s of a fresh
-  fit over the coast's own ranges (rejoin_samples / inconsistent_run). Modelled on 0000025e 6:43 track 48:
+  fit over the coast's own ranges (rejoin_samples / inconsistent_run). Modeled on 0000025e 6:43 track 48:
   the rail interval admitted a range walk, the D-059 hold then coasted the -13.5 rail (1/64 units) for 1.5 s while its
   own post-join fit read +0.8 m/s. Off, the coast is the pre-D-063 verbatim last trusted vRel."""
   DT_NANOS = 70_000_000
@@ -1908,7 +1908,7 @@ class TestRailIntervalBoundsTheCoast:
       yield i, rr.points[0]
 
   def test_off_an_inconsistent_coast_holds_the_stale_opening_vrel(self):
-    """Both toggles off: the pre-STATUS 92 behaviour, the route 00000268 9:52 shape (+4.06 coasted 2.35 s)."""
+    """Both toggles off: the pre-STATUS 92 behavior, the route 00000268 9:52 shape (+4.06 coasted 2.35 s)."""
     ri = make_radar_interface()
     ri.rail_interval = False
     ri.coast_range_bound = False
@@ -1949,7 +1949,7 @@ class TestRailIntervalBoundsTheCoast:
 class TestRailIntervalExactOnDegradedSweeps:
   """STATUS 129 (item 92's next step). With BoschARailInterval on, a DEGRADED sweep reads a railed U11 exactly in
   the D-054 gate unless the range itself (a fit over the rejected run plus this sweep) moves at a railed speed.
-  Modelled on 0000025e 402.912 s, track 48: a degraded sweep one sweep after its baseline, exact residual 2.32 m
+  Modeled on 0000025e 402.912 s, track 48: a degraded sweep one sweep after its baseline, exact residual 2.32 m
   (over the degraded 2.0 m limit), interval residual 1.93 m, no rejected run to fit. The interval admitted it,
   and the walk it started coasted a stale -13.5 rail (1/64 units) on an opening range."""
   DT_NANOS = 70_000_000
@@ -2005,7 +2005,7 @@ class TestRailIntervalExactOnDegradedSweeps:
     assert published == pytest.approx(d_step, abs=0.07)
 
   def test_without_the_degraded_rule_the_interval_admits_it(self, monkeypatch):
-    """Negative control: the item 92 behaviour. The degraded step is admitted through the interval."""
+    """Negative control: the item 92 behavior. The degraded step is admitted through the interval."""
     from opendbc.car.honda import bosch_a_radar as HRI
     monkeypatch.setattr(HRI, "BOSCH_A_RAIL_INTERVAL_EXACT_WHEN_DEGRADED", False)
     ri = make_radar_interface()
@@ -2019,7 +2019,7 @@ class TestRailIntervalExactOnDegradedSweeps:
 
 class TestRailIntervalDownSideOnlyInsideARailHold:
   """STATUS 129. With BoschARailInterval on, the coast bound's LESS-closing side acts only inside a hold that a
-  rail-interval admission started. Modelled on 00000266 795.4: a stale over-closing coast (-8.2 held while the
+  rail-interval admission started. Modeled on 00000266 795.4: a stale over-closing coast (-8.2 held while the
   range sat still) on a track the interval never touched. Applied to every coast, the down side softened that
   protected brake; now it gets the one-sided bound, as with RangeDerivedVrel alone."""
   DT_NANOS = 70_000_000
@@ -2065,7 +2065,7 @@ class TestRailIntervalDownSideOnlyInsideARailHold:
 
 class TestDegradedRailAdmissionNeedsRangeCorroboration:
   """STATUS 129. A degraded, railed track re-acquired after a rejected run: admitted through the interval only when
-  the rejected run's own ranges close at a railed speed. Modelled on 0000025e 12:03 track 59 (degraded on every
+  the rejected run's own ranges close at a railed speed. Modeled on 0000025e 12:03 track 59 (degraded on every
   sweep, closing ~16-18 m/s: admitted) against 0000025e 6:43 track 48 (a walk 47.9 -> 35.3 m, then the range sat
   still while U11 stayed on the rail: not admitted)."""
   DT_NANOS = 70_000_000
