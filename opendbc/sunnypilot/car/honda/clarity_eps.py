@@ -1,9 +1,11 @@
 """Clarity EPS calibration modes and angle mode (mode-switch / angle-loop EPS builds), ported from the night-star7
 personal branch (2026-11-16..18). The EPS firmware: rwd-xray lab/clarity CLARITY_MODESW_MM_P2_20261116 (build 0x02),
-CLARITY_ANGLE_MODE_20261117 (0x04), CLARITY_ANGLE_MODE_0x05_20261118 (0x05, software ID 39990+TRW+A020).
+CLARITY_ANGLE_MODE_20261117 (0x04), CLARITY_ANGLE_MODE_0x05_20261118 (0x05, software ID 39990+TRW+A020),
+CLARITY_ANGLE_MODE_0x09_20261119 (0x09, same software ID).
 
 0xE4 byte 3 standard (v1): bit 0 control type (0 torque, 1 angle); bits 3:1 mode slot: 0 stock, 1 CleanPTM (0x02),
-2 P2 slot (0x04), 3 angle 4.0 m/s^2 (0x07), 4 angle 3.0 m/s^2 (0x09, build 0x05); bits 7:4 reserved 0. Stock and
+2 P2 slot (0x04), 3 angle 4.0 m/s^2 (0x07), 4 angle 3.0 m/s^2 (0x09, build 0x05+); bits 7:4 reserved 0, except on the
+authority build (0x09), where they are the angle loop's authority cut CUT (0 = full .. 15 = none). Stock and
 older PTM firmware never read byte 3. Modes switch only at LKAS idle (252 ms).
 0x6A4 EPS_CAL_STATUS (50 Hz, only these builds): requested / active mode, build ID, angle-loop state. openpilot sends an
 angle payload only while the EPS reports the requested angle mode on a build that has it (EpsCalStatus.angle_ready).
@@ -11,7 +13,9 @@ angle payload only while the EPS reports the requested angle mode on a build tha
 Angle mode (steerControlType angle, startup setting, angle PTM ID 39990+TRW+A020 only): bytes 0-1 = -10 x target deg (0x14A STEER_ANGLE raw), byte 2 bit 5
 with the request. The target is a rate- and acceleration-limited trajectory inside the EPS's jump/slew/lateral-accel
 limits, starting at the wheel's angle and rate, its limits fading in over Override Fade Up; Steering Angle Rate Limit
-caps it further. The request drops on every driver press.
+caps it further. On builds 0x04/0x05 the request drops on every driver press. On the authority build the request stays
+up through a press: the loop's authority drops to 0 at once (CUT 15), the sent target follows the wheel, and after the
+release the target moves from the wheel to the plan with the engage fade while authority comes back over Override Fade Up.
 """
 import numpy as np
 
@@ -23,7 +27,8 @@ from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP
 EPS_MODE_ANGLE = 3            # byte 3 bits 3:1
 BYTE3_ANGLE = (EPS_MODE_ANGLE << 1) | 1
 EPS_MODE_ANGLE_CAP3 = 4       # build 0x05: mode 4 = the same angle loop with a 3.0 m/s^2 clamp (byte 3 = 0x09)
-CAP3_BUILDS = {0x05}          # builds that have mode 4
+CAP3_BUILDS = {0x05, 0x09}    # builds that have mode 4
+AUTH_BUILDS = {0x09}          # builds with the angle-loop authority gain: 0xE4 byte 3 bits 7:4 = CUT (0 = full .. 15 = none)
 AMAX_CAP3_SCALE = 3.0 / 4.0   # angle_ref AMAX4_SCALE: mode 4's clamp table = mode 3's x 0.75 (clamp angle is linear in a_lat)
 ANGLE_PAYLOAD = 0x20          # byte 2 bit 5 (DBC SET_ME_X00 holds byte 2 bits 6:0)
 RAW_PER_DEG = -10.0           # 0x14A STEER_ANGLE factor is -0.1
@@ -82,6 +87,7 @@ class AngleModeSender:
     self.apply_rate = 0.0
     self.active_frames = 0
     self.sent_active = False
+    self.after_press = False  # authority build: after a press the fade uses POST_PRESS_FADE_S until the request drops
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
@@ -89,8 +95,10 @@ class AngleModeSender:
     active = bool(lat_active and angle_ready)
     if not active:
       self.apply_angle, self.apply_rate = float(measured_deg), float(measured_rate_deg_s)
-      self.active_frames, self.sent_active = 0, False
+      self.active_frames, self.sent_active, self.after_press = 0, False, False
       return 0, False, 0
+    if self.after_press:                      # until the request drops: switching back mid-fade would shrink the limits
+      engage_s = POST_PRESS_FADE_S
     lim = angle_limit(v_ego, amax_scale)    # amax_scale = AMAX_CAP3_SCALE while the EPS runs mode 4
     # clamp the target, not the output, so the output still moves along the limited trajectory (from a measured angle
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
@@ -117,17 +125,60 @@ class AngleModeSender:
     self.sent_active = True
     return angle_to_raw(self.apply_angle), True, ANGLE_PAYLOAD
 
+  def follow(self, measured_deg: float, measured_rate_deg_s: float, v_ego: float) -> tuple[int, bool, int]:
+    """Authority build, driver pressing: the target follows the wheel (at most the EPS per-frame jump limit) instead of
+    the plan, and the trajectory restarts there with the wheel's rate and the engage fade, like a fresh engage. Holding
+    the plan target instead pulled the wheel toward a target the driver was leaving and left it 28 deg (p90 82) away at
+    release (route 000000ed)."""
+    step = float(np.interp(v_ego, _V, ANGLE_STEP_DEG))
+    self.apply_angle += float(np.clip(float(measured_deg) - self.apply_angle, -step, step))
+    self.apply_rate, self.active_frames, self.sent_active, self.after_press = float(measured_rate_deg_s), 0, True, True
+    return angle_to_raw(self.apply_angle), True, ANGLE_PAYLOAD
+
+
+# After a press on the authority build both the target hand-back and the authority come back over this fixed time, not
+# Override Fade Up (locked in angle mode, 1-2 s): the owner's car runs 0.5 s; ~1 s left the wheel lagging the model after
+# a mid-turn release (route 000000ed). Fresh engages keep Override Fade Up.
+POST_PRESS_FADE_S = 0.5
+
+
+class AuthorityRamp:
+  """Authority build: the angle loop's authority g (0..1) -> CUT = round(15 (1 - g)) for 0xE4 byte 3 bits 7:4. While the
+  driver presses, g drops to 0 at once: the stock EPS latches LKAS off for ~2 s when the LKAS command stays above 44
+  during a driver override, so the loop's output must fall below that, and a slower fade pulled the wheel toward center
+  under the driver's hands (route 000000ed). After a release g climbs back over POST_PRESS_FADE_S, on a fresh engage
+  over Override Fade Up (instantly when 0). The EPS slews its own gain toward CUT (build 0x09: 0 -> full in 0.34 s) and
+  resets it to 0 whenever the loop activates."""
+  def __init__(self):
+    self.g = 0.0
+    self.after_press = False
+
+  def update(self, active: bool, pressed: bool, fade_up_s: float) -> int:
+    if not active:
+      self.g, self.after_press = 0.0, False
+    elif pressed:
+      self.g, self.after_press = 0.0, True
+    else:
+      ramp_s = POST_PRESS_FADE_S if self.after_press else fade_up_s
+      self.g = min(1.0, self.g + DT_CTRL / ramp_s) if ramp_s > 0.0 else 1.0
+      if self.g >= 1.0:
+        self.after_press = False
+    return int(round(15.0 * (1.0 - self.g)))
+
 
 # build ID (0x6A4 byte 1) -> modes built in (bit k = mode k). The ID also fixes the frame layout. Each build's README
 # records ID <-> bin/rwd sha256.
 KNOWN_BUILDS = {
+  # 20261119, ID 39990+TRW+A020 (bin f8d6aee3, rwd 6fef0b9c): 0x05 + angle-loop authority gain (CUT in byte 3 bits 7:4,
+  # slews 0 -> full in 0.34 s, drops instantly) + stale window 32 -> 100 ms
+  0x09: 0b11111,
   0x05: 0b11111,  # angle 3.0 profile 20261118, ID 39990+TRW+A020 (bin b4f5970d, rwd 1fbf3b63): 0x04's 0-3, 4 = 3.0 m/s^2 clamp
   0x04: 0b1111,  # angle mode 20261118 layout v3 (bin d884e27f, rwd bb4ff1b3): MM 0x02's 0-2, 3 = angle loop (CleanPTM tables, A280 flat)
   # MM 20261116 layout v2 (bin 2382007c, rwd a173fd71; 11-17 fixes: 252 ms switch debounce, IMASK 10 copy, no reload while
   # engaged): 0 stock, 1 CleanPTM, 2 P2 slot (= CleanPTM for now)
   0x02: 0b111,
 }
-ANGLE_BUILDS = {0x04, 0x05}   # builds with the in-EPS angle loop (0x6A4 layout v3)
+ANGLE_BUILDS = {0x04, 0x05, 0x09}   # builds with the in-EPS angle loop (0x6A4 layout v3)
 STATUS_TIMEOUT_FRAMES = 50   # carState updates (100 Hz): 0.5 s, 25 periods of the 50 Hz frame
 MSG = "EPS_CAL_STATUS"
 
@@ -204,6 +255,11 @@ class EpsCalStatus:
   @property
   def cap3_active(self) -> bool:
     return self.angle and self.requested == EPS_MODE_ANGLE_CAP3
+
+  @property
+  def authority_ready(self) -> bool:
+    """Angle mode is ready on the authority build: hold the request through a press and send CUT in byte 3 bits 7:4."""
+    return self.angle_ready and self.build_id in AUTH_BUILDS
 
   @property
   def angle_ready(self) -> bool:

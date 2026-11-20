@@ -243,6 +243,7 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
     # Clarity mode-switch / angle-loop EPS (sunnypilot/car/honda/clarity_eps.py): byte 3 mode request, angle sender
     self.eps_mode = clarity_eps.requested_eps_mode(CP, CP_SP) << 1        # 0x02 on a modified-EPS Clarity, else 0
     self.angle_sender = clarity_eps.AngleModeSender() if clarity_eps.angle_mode(CP_SP) else None
+    self.angle_authority = clarity_eps.AuthorityRamp()
     if self.angle_sender is not None:
       self.eps_mode = clarity_eps.BYTE3_ANGLE
     self.mvl_longitudinal = self.nrdr.mvl_longitudinal
@@ -786,15 +787,24 @@ class CarController(CarControllerBase, MadsCarController, GasInterceptorCarContr
     angle_payload = 0
     if self.angle_sender is not None:
       # Angle mode replaces the torque: bytes 0-1 carry the target only while 0x6A4 reports the requested angle mode on
-      # an angle build. No request during a driver press, whatever the override settings (a request held through a press
-      # makes the stiff angle loop fight the driver). Profile changes only while lateral is off (EPS switches at idle).
+      # an angle build. Builds 0x04/0x05: no request during a driver press, whatever the override settings (a request
+      # held through a press makes the stiff angle loop fight the driver). Authority build (0x09): the request
+      # stays up, authority drops to 0 at once and the target follows the wheel (clarity_eps.AuthorityRamp,
+      # AngleModeSender.follow). Profile changes only while lateral is off (EPS switches at idle).
       if not CC.latActive:
         CS.eps_cal_status.set_angle_profile(live.clarity_angle_cap3)
       self.eps_mode = (CS.eps_cal_status.requested << 1) | 1                   # 0x07 mode 3, 0x09 mode 4
-      raw, lkas_active, angle_payload = self.angle_sender.update(
-        CC.latActive and not CS.out.steeringPressed, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo,
-        CS.eps_cal_status.angle_ready, CS.out.steeringRateDeg, live.override_fade_up_s,
-        clarity_eps.AMAX_CAP3_SCALE if CS.eps_cal_status.cap3_active else 1.0, live.angle_rate_limit_deg_s)
+      hold = CS.eps_cal_status.authority_ready
+      cut = self.angle_authority.update(hold and CC.latActive, CS.out.steeringPressed, live.override_fade_up_s)
+      if hold and CC.latActive and CS.out.steeringPressed:
+        raw, lkas_active, angle_payload = self.angle_sender.follow(CS.out.steeringAngleDeg, CS.out.steeringRateDeg, CS.out.vEgo)
+      else:
+        raw, lkas_active, angle_payload = self.angle_sender.update(
+          CC.latActive and (hold or not CS.out.steeringPressed), actuators.steeringAngleDeg, CS.out.steeringAngleDeg,
+          CS.out.vEgo, CS.eps_cal_status.angle_ready, CS.out.steeringRateDeg, live.override_fade_up_s,
+          clarity_eps.AMAX_CAP3_SCALE if CS.eps_cal_status.cap3_active else 1.0, live.angle_rate_limit_deg_s)
+      if hold and lkas_active:
+        self.eps_mode |= cut << 4                                               # authority CUT, only with the request
       apply_torque = raw
     can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control,
                                                       eps_mode=self.eps_mode, angle_payload=angle_payload))
