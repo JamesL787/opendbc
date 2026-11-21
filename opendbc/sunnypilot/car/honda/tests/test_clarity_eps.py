@@ -220,9 +220,10 @@ def _deg(d):
   return int.from_bytes(d[0:2], "big", signed=True) / ce.RAW_PER_DEG
 
 
-def test_authority_build_holds_through_a_press_and_follows_the_wheel():
+@pytest.mark.parametrize("build", [0x09, 0x0A])
+def test_authority_build_holds_through_a_press_and_follows_the_wheel(build):
   ci = clarity(PTM2, angle=True, override_fade_up_s=2.0)                  # nrdr's angle-mode default; release still 0.5 s
-  Feed(ci).run(8, build=0x09)
+  Feed(ci).run(8, build=build)
   assert ci.CS.eps_cal_status.angle_ready and ci.CS.eps_cal_status.authority_ready
   _, d = e4(ci, False, 0.0, 0.0)
   assert d[3] == 0x07                                                     # lateral off: no CUT
@@ -262,13 +263,14 @@ def test_authority_ramp():
   assert r.update(False, False, 0.0) == 15 and r.update(True, False, 0.0) == 0   # Fade Up 0: full at once on engage
 
 
-def test_cap3_profile_on_build_09():
+@pytest.mark.parametrize("build", [0x09, 0x0A])
+def test_cap3_profile_on_authority_builds(build):
   ci = clarity(PTM2, angle=True, clarity_angle_cap3=True)
   f = Feed(ci)
-  f.run(4, build=0x09, active=3, requested=3)
+  f.run(4, build=build, active=3, requested=3)
   _, d = e4(ci, False)
   assert d[3] == 0x09 and ci.CS.eps_cal_status.requested == 4
-  f.run(4, build=0x09, active=4, requested=4)
+  f.run(4, build=build, active=4, requested=4)
   assert ci.CS.eps_cal_status.cap3_active and ci.CS.eps_cal_status.authority_ready
 
 

@@ -1,7 +1,7 @@
 """Clarity EPS calibration modes and angle mode (mode-switch / angle-loop EPS builds), ported from the night-star7
 personal branch (2026-11-16..18). The EPS firmware: rwd-xray lab/clarity CLARITY_MODESW_MM_P2_20261116 (build 0x02),
 CLARITY_ANGLE_MODE_20261117 (0x04), CLARITY_ANGLE_MODE_0x05_20261118 (0x05, software ID 39990+TRW+A020),
-CLARITY_ANGLE_MODE_0x09_20261119 (0x09, same software ID).
+CLARITY_ANGLE_MODE_0x09_20261119 (0x09, same software ID), CLARITY_ANGLE_MODE_0x0A_20261120 (0x0A, same software ID).
 
 0xE4 byte 3 standard (v1): bit 0 control type (0 torque, 1 angle); bits 3:1 mode slot: 0 stock, 1 CleanPTM (0x02),
 2 P2 slot (0x04), 3 angle 4.0 m/s^2 (0x07), 4 angle 3.0 m/s^2 (0x09, build 0x05+); bits 7:4 reserved 0, except on the
@@ -27,8 +27,8 @@ from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP
 EPS_MODE_ANGLE = 3            # byte 3 bits 3:1
 BYTE3_ANGLE = (EPS_MODE_ANGLE << 1) | 1
 EPS_MODE_ANGLE_CAP3 = 4       # build 0x05: mode 4 = the same angle loop with a 3.0 m/s^2 clamp (byte 3 = 0x09)
-CAP3_BUILDS = {0x05, 0x09}    # builds that have mode 4
-AUTH_BUILDS = {0x09}          # builds with the angle-loop authority gain: 0xE4 byte 3 bits 7:4 = CUT (0 = full .. 15 = none)
+CAP3_BUILDS = {0x05, 0x09, 0x0A}    # builds that have mode 4
+AUTH_BUILDS = {0x09, 0x0A}    # builds with the angle-loop authority gain: 0xE4 byte 3 bits 7:4 = CUT (0 = full .. 15 = none)
 AMAX_CAP3_SCALE = 3.0 / 4.0   # angle_ref AMAX4_SCALE: mode 4's clamp table = mode 3's x 0.75 (clamp angle is linear in a_lat)
 ANGLE_PAYLOAD = 0x20          # byte 2 bit 5 (DBC SET_ME_X00 holds byte 2 bits 6:0)
 RAW_PER_DEG = -10.0           # 0x14A STEER_ANGLE factor is -0.1
@@ -169,6 +169,9 @@ class AuthorityRamp:
 # build ID (0x6A4 byte 1) -> modes built in (bit k = mode k). The ID also fixes the frame layout. Each build's README
 # records ID <-> bin/rwd sha256.
 KNOWN_BUILDS = {
+  # 20261120, ID 39990+TRW+A020 (bin cc6e2419, rwd ac3ab12f): 0x09 + the angle loop's rate feed-forward filter 2 -> 6 Hz
+  # and gain x0.7 (less overshoot at the end of a turn; hold, stiffness, limits and authority as 0x09)
+  0x0A: 0b11111,
   # 20261119, ID 39990+TRW+A020 (bin f8d6aee3, rwd 6fef0b9c): 0x05 + angle-loop authority gain (CUT in byte 3 bits 7:4,
   # slews 0 -> full in 0.34 s, drops instantly) + stale window 32 -> 100 ms
   0x09: 0b11111,
@@ -178,7 +181,7 @@ KNOWN_BUILDS = {
   # engaged): 0 stock, 1 CleanPTM, 2 P2 slot (= CleanPTM for now)
   0x02: 0b111,
 }
-ANGLE_BUILDS = {0x04, 0x05, 0x09}   # builds with the in-EPS angle loop (0x6A4 layout v3)
+ANGLE_BUILDS = {0x04, 0x05, 0x09, 0x0A}   # builds with the in-EPS angle loop (0x6A4 layout v3)
 STATUS_TIMEOUT_FRAMES = 50   # carState updates (100 Hz): 0.5 s, 25 periods of the 50 Hz frame
 MSG = "EPS_CAL_STATUS"
 
