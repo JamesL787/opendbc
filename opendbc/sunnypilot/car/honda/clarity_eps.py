@@ -87,7 +87,7 @@ class AngleModeSender:
     self.apply_rate = 0.0
     self.active_frames = 0
     self.sent_active = False
-    self.after_press = False  # authority build: after a press the fade uses POST_PRESS_FADE_S until the request drops
+    self.after_press = False  # authority build: after a press the limits use POST_PRESS_LIMITS_S until the request drops
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
@@ -98,7 +98,7 @@ class AngleModeSender:
       self.active_frames, self.sent_active, self.after_press = 0, False, False
       return 0, False, 0
     if self.after_press:                      # until the request drops: switching back mid-fade would shrink the limits
-      engage_s = POST_PRESS_FADE_S
+      engage_s = POST_PRESS_LIMITS_S
     lim = angle_limit(v_ego, amax_scale)    # amax_scale = AMAX_CAP3_SCALE while the EPS runs mode 4
     # clamp the target, not the output, so the output still moves along the limited trajectory (from a measured angle
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
@@ -136,17 +136,19 @@ class AngleModeSender:
     return angle_to_raw(self.apply_angle), True, ANGLE_PAYLOAD
 
 
-# After a press on the authority build both the target hand-back and the authority come back over this fixed time, not
-# Override Fade Up (locked in angle mode, 1-2 s): the owner's car runs 0.5 s; ~1 s left the wheel lagging the model after
-# a mid-turn release (route 000000ed). Fresh engages keep Override Fade Up.
-POST_PRESS_FADE_S = 0.5
+# After a press on the authority build the hand-back uses these two fixed times, not Override Fade Up (locked in angle
+# mode; it still sets fresh engages). Measured on the owner's car on build 0x09 (routes f4/f7, 2026-11-20): a gentle
+# authority return with the target going straight back to the plan felt best, while a ~1 s target fade left the wheel
+# lagging the model after a mid-turn release (route 000000ed).
+POST_PRESS_AUTH_S = 1.25    # s: the loop's authority climbs 0 -> full over this after a release (EPS floor 0.34 s)
+POST_PRESS_LIMITS_S = 0.0   # s: the target's rate/accel limits are full at once after a release (no limits fade)
 
 
 class AuthorityRamp:
   """Authority build: the angle loop's authority g (0..1) -> CUT = round(15 (1 - g)) for 0xE4 byte 3 bits 7:4. While the
   driver presses, g drops to 0 at once: the stock EPS latches LKAS off for ~2 s when the LKAS command stays above 44
   during a driver override, so the loop's output must fall below that, and a slower fade pulled the wheel toward center
-  under the driver's hands (route 000000ed). After a release g climbs back over POST_PRESS_FADE_S, on a fresh engage
+  under the driver's hands (route 000000ed). After a release g climbs back over POST_PRESS_AUTH_S, on a fresh engage
   over Override Fade Up (instantly when 0). The EPS slews its own gain toward CUT (build 0x09: 0 -> full in 0.34 s) and
   resets it to 0 whenever the loop activates."""
   def __init__(self):
@@ -159,7 +161,7 @@ class AuthorityRamp:
     elif pressed:
       self.g, self.after_press = 0.0, True
     else:
-      ramp_s = POST_PRESS_FADE_S if self.after_press else fade_up_s
+      ramp_s = POST_PRESS_AUTH_S if self.after_press else fade_up_s
       self.g = min(1.0, self.g + DT_CTRL / ramp_s) if ramp_s > 0.0 else 1.0
       if self.g >= 1.0:
         self.after_press = False
