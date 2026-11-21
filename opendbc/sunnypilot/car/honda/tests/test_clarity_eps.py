@@ -220,9 +220,10 @@ def _deg(d):
   return int.from_bytes(d[0:2], "big", signed=True) / ce.RAW_PER_DEG
 
 
-def test_authority_build_holds_through_a_press_and_follows_the_wheel():
-  ci = clarity(PTM2, angle=True, override_fade_up_s=2.0)                  # nrdr's angle-mode default; release still 0.5 s
-  Feed(ci).run(8, build=0x09)
+@pytest.mark.parametrize("build", [0x09, 0x0A])
+def test_authority_build_holds_through_a_press_and_follows_the_wheel(build):
+  ci = clarity(PTM2, angle=True, override_fade_up_s=2.0)                  # nrdr's angle-mode default; release uses POST_PRESS_*
+  Feed(ci).run(8, build=build)
   assert ci.CS.eps_cal_status.angle_ready and ci.CS.eps_cal_status.authority_ready
   _, d = e4(ci, False, 0.0, 0.0)
   assert d[3] == 0x07                                                     # lateral off: no CUT
@@ -232,10 +233,13 @@ def test_authority_build_holds_through_a_press_and_follows_the_wheel():
   press = [e4(ci, True, 10.0, -5.0, pressed=True)[1] for _ in range(60)]
   assert press[0][3] == 0xF7 and all(d[2] == 0xA0 and d[3] == 0xF7 for d in press)   # request held, authority 0 at once
   assert _deg(press[-1]) == pytest.approx(-5.0, abs=0.051)                # target follows the wheel
-  rel = [e4(ci, True, 10.0, -5.0)[1] for _ in range(60)]
+  rel = [e4(ci, True, 10.0, -5.0)[1] for _ in range(130)]
   assert abs(_deg(rel[0]) + 5.0) < 0.2                                    # release starts from the wheel
-  assert all(_deg(b) >= _deg(a) - 1e-9 for a, b in zip(rel, rel[1:], strict=False)) and _deg(rel[-1]) > 0.0
-  assert rel[-1][3] == 0x07 and [d[3] >> 4 for d in rel] == sorted((d[3] >> 4 for d in rel), reverse=True)   # back in 0.5 s
+  assert all(_deg(b) >= _deg(a) - 1e-9 for a, b in zip(rel, rel[1:], strict=False))
+  assert _deg(rel[40]) == pytest.approx(10.0, abs=0.051)                  # full limits at once: target back on the plan in 0.4 s
+  cut = [d[3] >> 4 for d in rel]
+  assert cut == sorted(cut, reverse=True) and rel[-1][3] == 0x07          # authority back over POST_PRESS_AUTH_S (1.25 s)
+  assert next(i for i, c in enumerate(cut) if c == 0) == pytest.approx(121, abs=2)
   more = [_deg(e4(ci, True, 10.0, -5.0)[1]) for _ in range(100)]          # no overshoot once the release fade is done
   assert max(more) <= 10.0 + 0.051 and more[-1] == pytest.approx(10.0, abs=0.051)
 
@@ -257,18 +261,19 @@ def test_authority_ramp():
   up = [r.update(True, False, 2.0) for _ in range(220)]                   # fresh engage: Override Fade Up (2.0 s)
   assert up[-1] == 0 and next(i for i, c in enumerate(up) if c == 0) == pytest.approx(193, abs=2)   # CUT 0 from g > 29/30
   assert r.update(True, True, 2.0) == 15 and r.g == 0.0                   # a press: zero at once
-  rel = [r.update(True, False, 2.0) for _ in range(60)]                   # after a press: POST_PRESS_FADE_S (0.5 s)
-  assert next(i for i, c in enumerate(rel) if c == 0) == pytest.approx(49, abs=2)
+  rel = [r.update(True, False, 2.0) for _ in range(130)]                  # after a press: POST_PRESS_AUTH_S (1.25 s)
+  assert next(i for i, c in enumerate(rel) if c == 0) == pytest.approx(121, abs=2)
   assert r.update(False, False, 0.0) == 15 and r.update(True, False, 0.0) == 0   # Fade Up 0: full at once on engage
 
 
-def test_cap3_profile_on_build_09():
+@pytest.mark.parametrize("build", [0x09, 0x0A])
+def test_cap3_profile_on_authority_builds(build):
   ci = clarity(PTM2, angle=True, clarity_angle_cap3=True)
   f = Feed(ci)
-  f.run(4, build=0x09, active=3, requested=3)
+  f.run(4, build=build, active=3, requested=3)
   _, d = e4(ci, False)
   assert d[3] == 0x09 and ci.CS.eps_cal_status.requested == 4
-  f.run(4, build=0x09, active=4, requested=4)
+  f.run(4, build=build, active=4, requested=4)
   assert ci.CS.eps_cal_status.cap3_active and ci.CS.eps_cal_status.authority_ready
 
 

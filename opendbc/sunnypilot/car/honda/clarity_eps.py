@@ -1,7 +1,7 @@
 """Clarity EPS calibration modes and angle mode (mode-switch / angle-loop EPS builds), ported from the night-star7
 personal branch (2026-11-16..18). The EPS firmware: rwd-xray lab/clarity CLARITY_MODESW_MM_P2_20261116 (build 0x02),
 CLARITY_ANGLE_MODE_20261117 (0x04), CLARITY_ANGLE_MODE_0x05_20261118 (0x05, software ID 39990+TRW+A020),
-CLARITY_ANGLE_MODE_0x09_20261119 (0x09, same software ID).
+CLARITY_ANGLE_MODE_0x09_20261119 (0x09, same software ID), CLARITY_ANGLE_MODE_0x0A_20261120 (0x0A, same software ID).
 
 0xE4 byte 3 standard (v1): bit 0 control type (0 torque, 1 angle); bits 3:1 mode slot: 0 stock, 1 CleanPTM (0x02),
 2 P2 slot (0x04), 3 angle 4.0 m/s^2 (0x07), 4 angle 3.0 m/s^2 (0x09, build 0x05+); bits 7:4 reserved 0, except on the
@@ -27,8 +27,8 @@ from opendbc.sunnypilot.car.honda.values_ext import HondaFlagsSP
 EPS_MODE_ANGLE = 3            # byte 3 bits 3:1
 BYTE3_ANGLE = (EPS_MODE_ANGLE << 1) | 1
 EPS_MODE_ANGLE_CAP3 = 4       # build 0x05: mode 4 = the same angle loop with a 3.0 m/s^2 clamp (byte 3 = 0x09)
-CAP3_BUILDS = {0x05, 0x09}    # builds that have mode 4
-AUTH_BUILDS = {0x09}          # builds with the angle-loop authority gain: 0xE4 byte 3 bits 7:4 = CUT (0 = full .. 15 = none)
+CAP3_BUILDS = {0x05, 0x09, 0x0A}    # builds that have mode 4
+AUTH_BUILDS = {0x09, 0x0A}    # builds with the angle-loop authority gain: 0xE4 byte 3 bits 7:4 = CUT (0 = full .. 15 = none)
 AMAX_CAP3_SCALE = 3.0 / 4.0   # angle_ref AMAX4_SCALE: mode 4's clamp table = mode 3's x 0.75 (clamp angle is linear in a_lat)
 ANGLE_PAYLOAD = 0x20          # byte 2 bit 5 (DBC SET_ME_X00 holds byte 2 bits 6:0)
 RAW_PER_DEG = -10.0           # 0x14A STEER_ANGLE factor is -0.1
@@ -87,7 +87,7 @@ class AngleModeSender:
     self.apply_rate = 0.0
     self.active_frames = 0
     self.sent_active = False
-    self.after_press = False  # authority build: after a press the fade uses POST_PRESS_FADE_S until the request drops
+    self.after_press = False  # authority build: after a press the limits use POST_PRESS_LIMITS_S until the request drops
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
@@ -98,7 +98,7 @@ class AngleModeSender:
       self.active_frames, self.sent_active, self.after_press = 0, False, False
       return 0, False, 0
     if self.after_press:                      # until the request drops: switching back mid-fade would shrink the limits
-      engage_s = POST_PRESS_FADE_S
+      engage_s = POST_PRESS_LIMITS_S
     lim = angle_limit(v_ego, amax_scale)    # amax_scale = AMAX_CAP3_SCALE while the EPS runs mode 4
     # clamp the target, not the output, so the output still moves along the limited trajectory (from a measured angle
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
@@ -136,17 +136,19 @@ class AngleModeSender:
     return angle_to_raw(self.apply_angle), True, ANGLE_PAYLOAD
 
 
-# After a press on the authority build both the target hand-back and the authority come back over this fixed time, not
-# Override Fade Up (locked in angle mode, 1-2 s): the owner's car runs 0.5 s; ~1 s left the wheel lagging the model after
-# a mid-turn release (route 000000ed). Fresh engages keep Override Fade Up.
-POST_PRESS_FADE_S = 0.5
+# After a press on the authority build the hand-back uses these two fixed times, not Override Fade Up (locked in angle
+# mode; it still sets fresh engages). Measured on the owner's car on build 0x09 (routes f4/f7, 2026-11-20): a gentle
+# authority return with the target going straight back to the plan felt best, while a ~1 s target fade left the wheel
+# lagging the model after a mid-turn release (route 000000ed).
+POST_PRESS_AUTH_S = 1.25    # s: the loop's authority climbs 0 -> full over this after a release (EPS floor 0.34 s)
+POST_PRESS_LIMITS_S = 0.0   # s: the target's rate/accel limits are full at once after a release (no limits fade)
 
 
 class AuthorityRamp:
   """Authority build: the angle loop's authority g (0..1) -> CUT = round(15 (1 - g)) for 0xE4 byte 3 bits 7:4. While the
   driver presses, g drops to 0 at once: the stock EPS latches LKAS off for ~2 s when the LKAS command stays above 44
   during a driver override, so the loop's output must fall below that, and a slower fade pulled the wheel toward center
-  under the driver's hands (route 000000ed). After a release g climbs back over POST_PRESS_FADE_S, on a fresh engage
+  under the driver's hands (route 000000ed). After a release g climbs back over POST_PRESS_AUTH_S, on a fresh engage
   over Override Fade Up (instantly when 0). The EPS slews its own gain toward CUT (build 0x09: 0 -> full in 0.34 s) and
   resets it to 0 whenever the loop activates."""
   def __init__(self):
@@ -159,7 +161,7 @@ class AuthorityRamp:
     elif pressed:
       self.g, self.after_press = 0.0, True
     else:
-      ramp_s = POST_PRESS_FADE_S if self.after_press else fade_up_s
+      ramp_s = POST_PRESS_AUTH_S if self.after_press else fade_up_s
       self.g = min(1.0, self.g + DT_CTRL / ramp_s) if ramp_s > 0.0 else 1.0
       if self.g >= 1.0:
         self.after_press = False
@@ -169,6 +171,9 @@ class AuthorityRamp:
 # build ID (0x6A4 byte 1) -> modes built in (bit k = mode k). The ID also fixes the frame layout. Each build's README
 # records ID <-> bin/rwd sha256.
 KNOWN_BUILDS = {
+  # 20261120, ID 39990+TRW+A020 (bin cc6e2419, rwd ac3ab12f): 0x09 + the angle loop's rate feed-forward filter 2 -> 6 Hz
+  # and gain x0.7 (less overshoot at the end of a turn; hold, stiffness, limits and authority as 0x09)
+  0x0A: 0b11111,
   # 20261119, ID 39990+TRW+A020 (bin f8d6aee3, rwd 6fef0b9c): 0x05 + angle-loop authority gain (CUT in byte 3 bits 7:4,
   # slews 0 -> full in 0.34 s, drops instantly) + stale window 32 -> 100 ms
   0x09: 0b11111,
@@ -178,7 +183,7 @@ KNOWN_BUILDS = {
   # engaged): 0 stock, 1 CleanPTM, 2 P2 slot (= CleanPTM for now)
   0x02: 0b111,
 }
-ANGLE_BUILDS = {0x04, 0x05, 0x09}   # builds with the in-EPS angle loop (0x6A4 layout v3)
+ANGLE_BUILDS = {0x04, 0x05, 0x09, 0x0A}   # builds with the in-EPS angle loop (0x6A4 layout v3)
 STATUS_TIMEOUT_FRAMES = 50   # carState updates (100 Hz): 0.5 s, 25 periods of the 50 Hz frame
 MSG = "EPS_CAL_STATUS"
 
