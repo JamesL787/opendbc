@@ -221,8 +221,8 @@ def _deg(d):
 
 
 @pytest.mark.parametrize("build", [0x09, 0x0A])
-def test_authority_build_holds_through_a_press_and_follows_the_wheel(build):
-  ci = clarity(PTM2, angle=True, override_fade_up_s=2.0)                  # nrdr's angle-mode default; release uses POST_PRESS_*
+def test_authority_build_holds_through_a_press_on_the_plan(build):
+  ci = clarity(PTM2, angle=True, override_fade_up_s=2.0)                  # nrdr's angle-mode default; release uses POST_PRESS_AUTH_S
   Feed(ci).run(8, build=build)
   assert ci.CS.eps_cal_status.angle_ready and ci.CS.eps_cal_status.authority_ready
   _, d = e4(ci, False, 0.0, 0.0)
@@ -230,18 +230,17 @@ def test_authority_build_holds_through_a_press_and_follows_the_wheel(build):
   eng = [e4(ci, True, 10.0, 0.0)[1] for _ in range(220)]
   assert eng[0][3] == 0xF7 and eng[-1][3] == 0x07                         # every engage starts at zero authority
   assert [d[3] >> 4 for d in eng] == sorted((d[3] >> 4 for d in eng), reverse=True)
+  plan = _deg(eng[-1])
+  assert plan == pytest.approx(10.0, abs=0.051)
   press = [e4(ci, True, 10.0, -5.0, pressed=True)[1] for _ in range(60)]
   assert press[0][3] == 0xF7 and all(d[2] == 0xA0 and d[3] == 0xF7 for d in press)   # request held, authority 0 at once
-  assert _deg(press[-1]) == pytest.approx(-5.0, abs=0.051)                # target follows the wheel
+  assert all(_deg(d) == pytest.approx(plan, abs=0.051) for d in press)    # the target stays on the plan (Hyundai/Kia style)
   rel = [e4(ci, True, 10.0, -5.0)[1] for _ in range(130)]
-  assert abs(_deg(rel[0]) + 5.0) < 0.2                                    # release starts from the wheel
-  assert all(_deg(b) >= _deg(a) - 1e-9 for a, b in zip(rel, rel[1:], strict=False))
-  assert _deg(rel[40]) == pytest.approx(10.0, abs=0.051)                  # full limits at once: target back on the plan in 0.4 s
+  assert all(_deg(d) == pytest.approx(plan, abs=0.051) for d in rel)      # release: the target does not move; authority returns
   cut = [d[3] >> 4 for d in rel]
   assert cut == sorted(cut, reverse=True) and rel[-1][3] == 0x07          # authority back over POST_PRESS_AUTH_S (1.25 s)
   assert next(i for i, c in enumerate(cut) if c == 0) == pytest.approx(121, abs=2)
-  more = [_deg(e4(ci, True, 10.0, -5.0)[1]) for _ in range(100)]          # no overshoot once the release fade is done
-  assert max(more) <= 10.0 + 0.051 and more[-1] == pytest.approx(10.0, abs=0.051)
+  assert not hasattr(ce.AngleModeSender, "follow")
 
 
 @pytest.mark.parametrize("build", [0x04, 0x05])
@@ -328,7 +327,7 @@ def test_v2_status_is_detected_and_decoded():
   assert s.fault == "" and s.angle_ready and s.authority_ready
 
 
-def test_v2_engage_press_follow_and_release():
+def test_v2_engage_press_on_the_plan_and_release():
   ci, _ = v2_car(override_fade_up_s=2.0)
   _, idle = e4(ci, False, 0.0, 0.0, v=20.0)
   assert idle[0:3] == bytes(3) and idle[3] == 0xF1                       # idle: MODE 1 requested, AUTH 15, no payload
@@ -339,7 +338,8 @@ def test_v2_engage_press_follow_and_release():
   assert auths == sorted(auths)
   press = [e4(ci, True, 5.0, -8.0, v=20.0, pressed=True)[1] for _ in range(80)]
   assert all(d[2] == 0xA0 and d[3] == 0x01 for d in press)               # request held, AUTH 0 at once
-  assert _deg(press[-1]) == pytest.approx(-8.0, abs=0.051)               # target follows the wheel (nrdr's hold)
+  plan = _deg(eng[-1])
+  assert all(_deg(d) == pytest.approx(plan, abs=0.051) for d in press)   # the target stays on the plan through the press
   rel = [e4(ci, True, 5.0, -8.0, v=20.0)[1] for _ in range(160)]
   ra = [d[3] >> 4 for d in rel]
   assert ra == sorted(ra) and rel[-1][3] == 0xF1                         # authority back over POST_PRESS_AUTH_S
@@ -475,8 +475,8 @@ def test_clarity_pedal_calibration_ignores_the_angle_bit():
 
 @pytest.mark.parametrize("v", [2.0, 8.0, 15.0, 20.0, 30.0, 40.0])
 def test_sender_stays_inside_the_panda_rule(v):
-  # every sent angle within panda's 3.6 m/s^2 angle, every step within its jerk step, the first at the wheel; through
-  # update and follow (nrdr's hold), including a press that drags the wheel past the limit
+  # every sent angle within panda's 3.6 m/s^2 angle, every step within its jerk step, the first at the wheel; the hold
+  # (request up, target on the plan) through a press that drags the wheel past the limit
   # panda's integer form (honda.h): |raw| <= int(lim x 10 + 1), |raw - last| <= int(step x 10 + 1), here at v (panda: v - 1,
   # which only widens both)
   s = ce.AngleModeSender()
@@ -485,10 +485,7 @@ def test_sender_stays_inside_the_panda_rule(v):
   for i in range(700):
     pressed = 200 <= i < 400
     wheel = wheel + 3.0 if pressed else wheel + 0.3 * (s.out_angle - wheel)
-    if pressed:
-      raw, req, _ = s.follow(wheel, 300.0, v)
-    else:
-      raw, req, _ = s.update(True, 2.0 * ce.std_angle_limit(v) * (1 if (i // 150) % 2 == 0 else -1), wheel, v, True, 0.0, 0.0)
+    raw, req, _ = s.update(True, 2.0 * ce.std_angle_limit(v) * (1 if (i // 150) % 2 == 0 else -1), wheel, v, True, 0.0, 0.0)
     if not req:
       prev = None
       continue

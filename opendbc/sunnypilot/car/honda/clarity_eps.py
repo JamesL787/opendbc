@@ -14,7 +14,7 @@ it sees a layout-4 frame, then v2 (a v1 frame refused by 0x0B is harmless: no st
 Panda (safety param HondaSafetyFlagsSP.CLARITY_ANGLE, honda.h): the standard angle rule of the other angle brands, |target|
 <= the 3.6 m/s^2 angle and per-frame step <= the 3.6 m/s^3 jerk step at speed - 1 m/s, the first target within one step of
 the measured 0x14A angle, bytes 0-1 / request / payload all zero while lateral is not allowed or not steering. The sender
-here applies the same limits to every frame (update and follow), so panda never blocks a frame openpilot built.
+here applies the same limits to every frame, so panda never blocks a frame openpilot built.
 
 0xE4 byte 3 standard (v1): bit 0 control type (0 torque, 1 angle); bits 3:1 mode slot: 0 stock, 1 CleanPTM (0x02),
 2 P2 slot (0x04), 3 angle 4.0 m/s^2 (0x07), 4 angle 3.0 m/s^2 (0x09, build 0x05+); bits 7:4 reserved 0, except on the
@@ -26,9 +26,11 @@ angle payload only while the EPS reports the requested angle mode on a build tha
 Angle mode (steerControlType angle, startup setting, angle PTM ID 39990+TRW+A020 only): bytes 0-1 = -10 x target deg (0x14A STEER_ANGLE raw), byte 2 bit 5
 with the request. The target is a rate- and acceleration-limited trajectory inside the EPS's jump/slew/lateral-accel
 limits, starting at the wheel's angle and rate, its limits fading in over Override Fade Up; Steering Angle Rate Limit
-caps it further. On builds 0x04/0x05 the request drops on every driver press. On the authority build the request stays
-up through a press: the loop's authority drops to 0 at once (CUT 15), the sent target follows the wheel, and after the
-release the target moves from the wheel to the plan with the engage fade while authority comes back over Override Fade Up.
+caps it further. On builds 0x04/0x05 the request drops on every driver press. On the authority builds (0x09, 0x0A, 0x0B)
+the request stays up through a press: the loop's authority drops to 0 at once and the sent target stays on openpilot's
+plan (Hyundai/Kia style, ported from the night-star7 personal branch e6676c283f: the model assumes its desired curvature
+is carried out while lateral is active, so a target that follows the wheel and walks back after the release misleads
+it); at the release only authority changes, back over POST_PRESS_AUTH_S.
 """
 from enum import IntEnum
 
@@ -134,7 +136,6 @@ class AngleModeSender:
     self.apply_rate = 0.0
     self.active_frames = 0
     self.sent_active = False
-    self.after_press = False  # authority build: after a press the limits use POST_PRESS_LIMITS_S until the request drops
     self.out_angle = 0.0      # the angle actually sent (panda: per-frame step and absolute limit from here)
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
@@ -148,10 +149,8 @@ class AngleModeSender:
     if not active:
       self.apply_angle, self.apply_rate = float(measured_deg), float(measured_rate_deg_s)
       self.out_angle = float(measured_deg)
-      self.active_frames, self.sent_active, self.after_press = 0, False, False
+      self.active_frames, self.sent_active = 0, False
       return 0, False, 0
-    if self.after_press:                      # until the request drops: switching back mid-fade would shrink the limits
-      engage_s = POST_PRESS_LIMITS_S
     lim = angle_limit(v_ego, amax_scale)    # amax_scale = AMAX_CAP3_SCALE while the EPS runs mode 4
     # clamp the target, not the output, so the output still moves along the limited trajectory (from a measured angle
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
@@ -188,28 +187,12 @@ class AngleModeSender:
     self.sent_active = True
     return angle_to_raw(self.out_angle), True, ANGLE_PAYLOAD
 
-  def follow(self, measured_deg: float, measured_rate_deg_s: float, v_ego: float) -> tuple[int, bool, int]:
-    """Authority build, driver pressing: the target follows the wheel (at most one sender step per frame, inside panda's
-    3.6 m/s^2 angle) instead of
-    the plan, and the trajectory restarts there with the wheel's rate and the engage fade, like a fresh engage. Holding
-    the plan target instead pulled the wheel toward a target the driver was leaving and left it 28 deg (p90 82) away at
-    release (route 000000ed)."""
-    step = sender_step(v_ego)
-    first = not self.sent_active
-    if first and abs(float(measured_deg)) > std_angle_limit(v_ego):
-      return 0, False, 0                      # as update(): no first target beyond panda's angle (it must start at the wheel)
-    raw, req, payload = self._send(measured_deg, measured_deg, v_ego, step)
-    self.apply_angle = self.out_angle
-    self.apply_rate, self.active_frames, self.after_press = float(measured_rate_deg_s), 0, True
-    return raw, req, payload
 
-
-# After a press on the authority build the hand-back uses these two fixed times, not Override Fade Up (locked in angle
-# mode; it still sets fresh engages). Measured on the owner's car on build 0x09 (routes f4/f7, 2026-11-20): a gentle
-# authority return with the target going straight back to the plan felt best, while a ~1 s target fade left the wheel
-# lagging the model after a mid-turn release (route 000000ed).
+# After a press on the authority build the authority climbs back over this fixed time, not Override Fade Up (locked in
+# angle mode; it still sets fresh engages). Measured on the owner's car on build 0x09 (routes f4/f7, 2026-11-20): a gentle
+# authority return with the target on the plan felt best, while a ~1 s target fade left the wheel lagging the model after
+# a mid-turn release (route 000000ed). The target itself never leaves the plan through a press.
 POST_PRESS_AUTH_S = 1.25    # s: the loop's authority climbs 0 -> full over this after a release (EPS floor 0.34 s)
-POST_PRESS_LIMITS_S = 0.0   # s: the target's rate/accel limits are full at once after a release (no limits fade)
 
 
 class AuthorityRamp:

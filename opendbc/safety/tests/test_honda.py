@@ -1178,9 +1178,9 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
           self.assertGreater(abs(raw), 0.98 * cam.angle_limit(v, cam.AMAX_CAP3_SCALE if byte3 == 0x09 else 1.0) * 10, v)   # reached the clamp
 
   def test_sender_through_an_override_passes(self):
-    # nrdr's hold through override (AngleModeSender.follow): the request stays up with no authority and the sent target
-    # follows the wheel while the driver turns it away at 350 deg/s and past the limit, then the plan again after the
-    # release; every frame is ordinary for panda, in both protocols' byte 3
+    # hold through override: the request stays up with no authority and the target stays on the plan while the driver
+    # turns the wheel away at 350 deg/s (past the limit); those are ordinary frames, so panda passes every one, also at
+    # the release, in both protocols' byte 3
     from opendbc.sunnypilot.car.honda import clarity_eps as cam
     for v in (2.2, 10., 20.):
       for v2 in (False, True):
@@ -1190,25 +1190,13 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
           pressed = 100 <= i < 400
           wheel = min(wheel + 3.5, 450.) if pressed else wheel + 0.2 * (-wheel)   # driver turns away, then lets go
           self._set_meas(int(-10 * wheel))
-          if pressed:
-            raw, req, pay = sender.follow(wheel, 350., v)
-          else:
-            raw, req, pay = sender.update(True, plan, wheel, v, True, 0., 0.)
+          raw, req, pay = sender.update(True, plan, wheel, v, True, 0., 0.)
           cut = 15 if pressed else 0
           b3 = cam.byte3_v2(cut) if v2 else cam.byte3_v1(cam.EPS_MODE_ANGLE, cut)
           values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": b3}
           self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, v2, i, raw))
-          if req:
-            self.assertLessEqual(abs(raw) / 10., cam.std_angle_limit(v) + 0.06)
-
-  def test_follow_never_starts_beyond_the_limit(self):
-    # a press before the request ever rose, with the wheel beyond the limit: no request (all-zero frames pass)
-    from opendbc.sunnypilot.car.honda import clarity_eps as cam
-    v = 12.
-    wheel = cam.std_angle_limit(v) + 20.
-    self._start(int(-10 * wheel), v)
-    raw, req, pay = cam.AngleModeSender().follow(wheel, 0., v)
-    self.assertEqual((raw, req, pay), (0, False, 0))
+          if i > 200:
+            self.assertAlmostEqual(raw / -10., plan, delta=0.06)   # on the plan through the press and the release
 
   def test_first_target_window_is_the_recent_wheel_samples(self):
     # from the wheel = within one step of any of the last 6 0x14A samples (the standard's inactive check window)
